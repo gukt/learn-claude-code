@@ -68,7 +68,7 @@ TOOLS = [
         # - https://platform.claude.com/docs/zh-CN/agents-and-tools/tool-use/strict-tool-use
         # - https://developers.openai.com/api/docs/guides/function-calling
         # 重点关注 input_schema 的写法，以及 properties、required 字段的定义方式。
-        "input_schema": {  # 工具输入模式
+        "input_schema": {  # 工具输入参数定义
             "type": "object",
             "properties": {"command": {"type": "string"}},
             "required": ["command"],
@@ -169,15 +169,18 @@ def run_one_turn(state: LoopState) -> bool:
     if response.stop_reason != "tool_use":
         state.transition_reason = None
         return False
+    # 执行工具调用，得到返回结果
     results = execute_tool_calls(response.content)
     if not results:
         state.transition_reason = None
         return False
+    # 将工具调用结果添加到历史消息中。
     state.messages.append({"role": "user", "content": results})
+    # 更新循环计数和流转原因
     state.turn_count += 1
     state.transition_reason = "tool_result"
+    # 执行正常总是返回 true
     return True
-
 
 def agent_loop(state: LoopState) -> None:
     while run_one_turn(state):
@@ -190,8 +193,11 @@ def agent_loop(state: LoopState) -> None:
 # 4. 创建一个名为 test_output 的目录，并在其中写入 3 个文件
 if __name__ == "__main__":
     history = []
+    # Agent 的核心本质：就是一个无限循环
     while True:
         try:
+            # 显示青色提示符"s01 >> "，等待用户输入内容，并将输入结果赋值给 query 变量。
+            # 使用 ANSI 转义码实现颜色。
             query = input("\033[36ms01 >> \033[0m")
         except (EOFError, KeyboardInterrupt):
             break

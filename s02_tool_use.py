@@ -177,6 +177,24 @@ TOOLS = [
     },
 ]
 
+
+def content_block_to_api_dict(block) -> dict | None:
+    """将 SDK 返回的 TextBlock / ToolUseBlock 等转为 Messages API 所需的 dict。
+    纯 dict 的块会去掉以下划线开头的内部字段。无法识别的类型跳过（返回 None）。
+    """
+    if isinstance(block, dict):
+        return {k: v for k, v in block.items() if not str(k).startswith("_")}
+    model_dump = getattr(block, "model_dump", None)
+    if callable(model_dump):
+        try:
+            data = model_dump(mode="json", exclude_none=True)
+        except TypeError:
+            data = model_dump(exclude_none=True)
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if not str(k).startswith("_")}
+    return None
+
+
 # 规范化消息列表
 def normalize_messages(messages: list) -> list:
     """Clean up messages before sending to the API.
@@ -192,9 +210,9 @@ def normalize_messages(messages: list) -> list:
             clean["content"] = msg["content"]
         elif isinstance(msg.get("content"), list):
             clean["content"] = [
-                {k: v for k, v in block.items() if not k.startswith("_")}
+                b
                 for block in msg["content"]
-                if isinstance(block, dict)
+                if (b := content_block_to_api_dict(block)) is not None
             ]
         else:
             clean["content"] = msg.get("content", "")
@@ -305,3 +323,23 @@ if __name__ == "__main__":
                 if hasattr(block, "text"):
                     print(block.text)
         print()
+
+# 我们已经掌握的内容
+#
+# 通过添加一个工具映射字典，将任何新工具接入 Agent - 无需修改循环
+# 实施路径沙箱保护，确保模型无法再工作区之外进行读写操作
+# 解释为什么映射的可扩展优于 if/elif 链式判断
+#
+# 保持边界简洁：目前一个工具架构就足够了。
+# 你暂时不需要策略层、审批界面或插件生态系统。
+# 如果你能在不重写循环的情况下添加一个新工具，就说明你已经掌握了核心模式。
+
+# Next Step:
+# 你的智能体现在可以安全地读取、写入和编辑文件了。
+# 但如果你让它执行一个 10 步的重构操作会发生什么？
+# 它会完成第 1 到 3 步，然后因为忘记了后续步骤而开始随意发挥。
+# 在 s03 中，你将为智能体提供一个会话计划：
+# 一份结构化的待办事项清单，帮助它在处理复杂的多步骤任务时始终保持方向。
+
+# 核心要点：
+# 循环不应关心工具的内部工作原理。它只需要一个从工具名称到处理程序的可靠路由。
