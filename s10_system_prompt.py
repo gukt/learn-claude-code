@@ -41,6 +41,63 @@ core
 + dynamic_context
 = final model input
 
+## 工作原理
+步骤 1. 定义构建器。 每个方法仅对应一个内容来源。
+```python
+class SystemPromptBuilder:
+    def build(self) -> str:
+        parts = []
+        parts.append(self._build_core())
+        parts.append(self._build_tools())
+        parts.append(self._build_skills())
+        parts.append(self._build_memory())
+        parts.append(self._build_claude_md())
+        parts.append(self._build_dynamic())
+        return "\n\n".join(p for p in parts if p)
+```
+这就是本章的核心思想。每个 _build_* 方法都仅从一个数据源获取信息：_build_tools() 读取工具列表，_build_memory() 读取记忆库，以此类推。
+如果你想知道提示词中的某一行源自何处，只需查看负责生成它的那一个方法即可。
+
+第二步：将稳定内容与动态内容分离。 这是整个流程中最重要的边界。
+稳定内容在整个会话期间很少或从不发生变化：
+
+- 角色描述
+- 工具契约（工具列表及其架构）
+- 长期安全规则
+- 项目指令链（CLAUDE.md 文件）
+
+动态内容每一轮或每几轮就会发生变化：
+- 当前日期
+- 当前工作目录
+- 当前模式（规划模式、代码模式等）
+- 每轮的警告或提醒
+
+将这些内容混合在一起，意味着模型会重新读取数千个未发生变化的稳定 tokens，而少数发生变化的 tokens 则被埋在中间某个位置。
+一个实际的系统会用边界标记将它们分隔开，这样稳定的前缀就可以在不同轮次中被缓存，从而节省提示词 tokens。
+
+第三步。分层编写 CLAUDE.md 说明。
+CLAUDE.md 不同于记忆，也不同于技能。它是一种分层式说明源 —— 这意味着有多个文件参与其中，且后续层级是对先前层级进行补充，而非替换：
+
+- 用户级指令文件（~/.claude/CLAUDE.md）
+- 项目根目录指令文件（<project>/CLAUDE.md）
+- 更深层级子目录下的指令文件
+
+关键不在于文件名本身，而在于指令源可以分层叠加，而非被覆盖。
+
+步骤 4. 重新注入记忆。
+保存记忆（在 s09 中）只是该机制的一半。如果记忆永远不会重新进入模型输入，它实际上无法指导智能体。
+因此，记忆自然应纳入提示词流程：
+
+save durable facts in s09 在s09中保存持久化事实
+re-inject them through the prompt builder in s10
+在s10中通过提示构建器重新注入它们
+
+步骤 5：单独附加每轮提醒。 有些信息的存在时间甚至比 “动态上下文” 更短 —— 它只在当前这一轮有效，不应污染稳定的系统提示。一条system-reminder类的用户消息可将这些临时信号完全置于构建器之外：
+
+- 仅适用于本轮的指令
+- 临时通知
+- 临时恢复指引
+
 s10_system_prompt.py - System Prompt Construction
 This chapter teaches one core idea:
 the system prompt should be assembled from clear sections, not written as one
@@ -58,6 +115,20 @@ Per-turn reminders are even more dynamic. They are better injected as a
 separate user-role system reminder than mixed blindly into the stable prompt.
 Key insight: "Prompt construction is a pipeline with boundaries, not one
 big string."
+
+s10_system_prompt.py - 系统提示词构建
+本章教授一个核心思想：
+系统提示词应该从清晰的模块而非单一的硬编码字符串构建。
+教学流水线：
+1. 核心指令
+2. 工具列表
+3. 技能元数据
+4. 记忆部分
+5. CLAUDE.md 链
+6. 动态上下文
+构建器将稳定信息与频繁变化的信息分开。一个简单的 DYNAMIC_BOUNDARY 标记使其可见。
+每轮提醒甚至更动态。它们最好作为单独的 system-reminder 用户消息注入，而不是盲目地混合到稳定的提示中。
+关键洞察：“提示词构建是一个有边界的水管，而非一个巨大的静态字符串。”
 """
 import datetime
 import json
